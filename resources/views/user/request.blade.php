@@ -382,7 +382,7 @@
                     </div>
 
                     <!-- ==============================================
-                         RIGHT COLUMN: Peta, Koordinat, Form Alamat & Submit (Sticky)
+                         RIGHT COLUMN: Peta, Koordinat, Alamat Tunggal & Submit (Sticky)
                          ============================================== -->
                     <div class="request-col-right sticky-column">
                         <div class="request-card">
@@ -392,42 +392,51 @@
                                 </div>
                                 <div class="request-card-title-group">
                                     <h2>Lokasi & Alamat Lengkap</h2>
-                                    <p>Isi kecamatan, kota, dan jalan untuk menampilkan titik lokasi di peta</p>
+                                    <p>Pilih titik di peta, alamat lengkap terisi otomatis</p>
                                 </div>
                             </div>
 
-                            <!-- Partial Estimasi Algoritma Cerdas dan Google Maps -->
                             <input type="hidden" id="lokasiInput" name="lokasi" value="{{ old('lokasi') }}">
-                            @include('user.request._estimasi')
 
-                            <!-- Input Alamat Rinci -->
-                            <div class="form-group" style="margin-top: 14px;">
-                                <label class="form-label">Rincian Wilayah & Alamat</label>
-                                <div class="address-grid">
-                                    <div>
-                                        <input type="text" id="alamatKabupaten" name="alamat_kabupaten" value="{{ old('alamat_kabupaten') }}" oninput="syncLocationAddress()" onchange="syncLocationAddress()" onblur="syncLocationAddress()" placeholder="Kabupaten / Kota" maxlength="100" class="form-control">
-                                    </div>
-                                    <div>
-                                        <input type="text" id="alamatKecamatan" name="alamat_kecamatan" value="{{ old('alamat_kecamatan') }}" oninput="syncLocationAddress()" onchange="syncLocationAddress()" onblur="syncLocationAddress()" placeholder="Kecamatan" maxlength="100" class="form-control">
-                                    </div>
-                                </div>
-                                <div class="address-grid">
-                                    <div>
-                                        <input type="text" id="alamatJalan" name="alamat_jalan" value="{{ old('alamat_jalan') }}" oninput="syncLocationAddress()" onchange="syncLocationAddress()" onblur="syncLocationAddress()" placeholder="Nama Jalan / Gang / Patokan" maxlength="120" class="form-control">
-                                    </div>
-                                    <div class="address-rtrw-grid">
-                                        <div>
-                                            <input type="text" id="alamatRt" name="alamat_rt" value="{{ old('alamat_rt') }}" oninput="syncLocationAddress()" onchange="syncLocationAddress()" placeholder="RT" maxlength="5" class="form-control">
-                                        </div>
-                                        <div>
-                                            <input type="text" id="alamatRw" name="alamat_rw" value="{{ old('alamat_rw') }}" oninput="syncLocationAddress()" onchange="syncLocationAddress()" placeholder="RW" maxlength="5" class="form-control">
-                                        </div>
-                                    </div>
-                                </div>
+                            <!-- Alamat Lengkap: terisi otomatis dari titik peta, tetap bisa diedit -->
+                            <div class="form-group">
+                                <label class="form-label" for="alamatLengkap">Alamat Lengkap <span class="required">*</span></label>
+
+                                @php
+                                    $punyaKoordinatTersimpan = old('latitude') || (isset($user) && !empty($user->latitude)) || !empty(auth()->user()->latitude);
+                                    $alamatLama = old('alamat_lengkap') ?: collect([
+                                        old('alamat_jalan'),
+                                        (old('alamat_rt') || old('alamat_rw')) ? trim('RT ' . old('alamat_rt') . ' RW ' . old('alamat_rw')) : null,
+                                        old('alamat_kelurahan'),
+                                        old('alamat_kecamatan'),
+                                        old('alamat_kabupaten'),
+                                        old('alamat_provinsi'),
+                                        old('alamat_kode_pos'),
+                                    ])->filter()->implode(', ');
+                                @endphp
+
+                                <input type="text" id="alamatLengkap" value="{{ $alamatLama }}" data-has-saved-coords="{{ $punyaKoordinatTersimpan ? 1 : 0 }}"
+                                       placeholder="Masukkan lokasi atau pilih titik di peta di bawah..."
+                                       maxlength="255" autocomplete="off" class="form-control" required>
+
+                                {{-- Field tersembunyi: diisi otomatis dari kolom Alamat Lengkap & peta --}}
+                                <input type="hidden" id="alamatKabupaten" name="alamat_kabupaten" value="{{ old('alamat_kabupaten') }}">
+                                <input type="hidden" id="alamatKecamatan" name="alamat_kecamatan" value="{{ old('alamat_kecamatan') }}">
+                                <input type="hidden" id="alamatKelurahan" name="alamat_kelurahan" value="{{ old('alamat_kelurahan') }}">
+                                <input type="hidden" id="alamatProvinsi"  name="alamat_provinsi"  value="{{ old('alamat_provinsi') }}">
+                                <input type="hidden" id="alamatKodePos"   name="alamat_kode_pos"  value="{{ old('alamat_kode_pos') }}">
+                                <input type="hidden" id="alamatJalan"     name="alamat_jalan"     value="{{ old('alamat_jalan') }}">
+                                <input type="hidden" id="alamatRt"        name="alamat_rt"        value="{{ old('alamat_rt') }}">
+                                <input type="hidden" id="alamatRw"        name="alamat_rw"        value="{{ old('alamat_rw') }}">
+
                                 <div id="addressStatus" style="font-size:0.78rem; color:#64748b; margin-top:5px;">
-                                    <i class="fa-solid fa-circle-check" style="color:#10b981;"></i> Titik peta dicari otomatis setelah nama jalan dan kabupaten/kota diisi. Geser pin untuk menyesuaikan posisi.
+                                    <i class="fa-solid fa-circle-check" style="color:#10b981;"></i>
+                                    Terisi otomatis saat Anda memilih titik di peta. Anda juga bisa mengetik alamat lalu tekan Enter untuk memindahkan pin.
                                 </div>
                             </div>
+
+                            <!-- Peta: Titik lokasi pekerjaan (pencarian, GPS, pin) -->
+                            @include('user.request._estimasi')
 
                             <!-- Submit CTA Button -->
                             <button type="submit" class="btn-submit-request" id="btnSubmitRequest">
@@ -486,8 +495,18 @@
     }
 
     // Form submission ensures address is synced
-    document.getElementById('requestForm').addEventListener('submit', function() {
-        if (typeof syncLocationAddress === 'function') syncLocationAddress();
+    document.getElementById('requestForm').addEventListener('submit', function(e) {
+        // Titik lokasi wajib dipilih (cari, klik peta, geser pin, atau lokasi saya)
+        if (typeof isLocationPicked === 'function' && !isLocationPicked()) {
+            e.preventDefault();
+            if (typeof setMapStatus === 'function') {
+                setMapStatus('error', 'Pilih titik lokasi pekerjaan terlebih dahulu: cari alamat, klik peta, atau gunakan lokasi saya.');
+            }
+            const mapEl = document.getElementById('requestMap');
+            if (mapEl) mapEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+        if (typeof syncLocationAddress === 'function') syncLocationAddress({ lookupMap: false });
         this.action = "{{ route('request.store') }}";
         this.method = "POST";
     });

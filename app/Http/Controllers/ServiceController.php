@@ -3,89 +3,114 @@
 namespace App\Http\Controllers;
 
 use App\Models\Service;
-use App\Models\Booking;
-use App\Models\Worker;
-use App\Models\Request as RequestModel; // gunakan alias agar tidak bentrok dengan Illuminate\\Http\\Request
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 
 class ServiceController extends Controller
 {
+    /**
+     * Dashboard admin.
+     * Jika index() lama kamu sudah berjalan, PERTAHANKAN isinya.
+     * Versi ini hanya contoh yang cocok dengan variabel di view.
+     * Sesuaikan nama view dengan file blade kamu.
+     */
     public function index()
     {
-        $services = Service::all(); // ambil semua data
-        $admin = auth()->guard('admin')->user();
-        $totalBooking = RequestModel::count();
-        $activeWorkers = Worker::where('status', 'aktif')->count();
-        return view('dashboard_admin', compact('services', 'admin', 'totalBooking', 'activeWorkers'));
+        $services      = Service::latest()->get();
+        $totalBooking  = \App\Models\Request::count();
+        $activeWorkers = \App\Models\Worker::count();
+
+        return view('dashboard_admin', compact('services', 'totalBooking', 'activeWorkers'));
     }
 
-
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'nama' => 'required',
-            'deskripsi' => 'nullable',
-            'gambar' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
-            'harga_min' => 'required|numeric',
-            'harga_max' => 'required|numeric',
-            'status' => 'required|in:aktif,nonaktif'
-        ]);
+        $data = $request->validate($this->rules(), $this->messages());
 
-        // handle upload gambar jika ada
+        $data['status'] = $data['status'] ?? 'aktif';
+
         if ($request->hasFile('gambar')) {
-            $file = $request->file('gambar');
-            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
-            $destPath = public_path('uploads/services');
-            if (!is_dir($destPath)) {
-                @mkdir($destPath, 0777, true);
-            }
-            $file->move($destPath, $filename);
-            $data['gambar'] = $filename;
+            $data['gambar'] = $this->saveImage($request);
+        } else {
+            unset($data['gambar']);
         }
 
         Service::create($data);
-        return redirect()->back()->with('success', 'Layanan berhasil ditambah!');
+
+        return response()->json(['success' => true, 'message' => 'Layanan berhasil ditambahkan.']);
     }
 
-    public function update(Request $request, Service $service)
+    public function update(Request $request, Service $service): JsonResponse
     {
-        $data = $request->validate([
-            'nama' => 'required|string|max:255',
-            'deskripsi' => 'nullable|string',
-            'gambar' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
-            'harga_min' => 'required|numeric|min:0',
-            'harga_max' => 'required|numeric|min:0|gte:harga_min',
-            'status' => 'required|in:aktif,nonaktif',
-        ]);
+        $data = $request->validate($this->rules(true), $this->messages());
 
         if ($request->hasFile('gambar')) {
-            $file = $request->file('gambar');
-            $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
-            $destPath = public_path('uploads/services');
-            if (!is_dir($destPath)) {
-                @mkdir($destPath, 0777, true);
-            }
-            $file->move($destPath, $filename);
-            $data['gambar'] = $filename;
-            // optional: hapus file lama
-            if (!empty($service->gambar)) {
-                $old = public_path('uploads/services/' . $service->gambar);
-                if (is_file($old)) { @unlink($old); }
-            }
+            $this->deleteImage($service->gambar);
+            $data['gambar'] = $this->saveImage($request);
+        } else {
+            unset($data['gambar']); // jangan menimpa gambar lama dengan null
         }
 
         $service->update($data);
-        return response()->json(['success' => true, 'service' => $service]);
+
+        return response()->json(['success' => true, 'message' => 'Layanan berhasil diperbarui.']);
     }
 
-    public function destroy(Service $service)
+    public function destroy(Service $service): JsonResponse
     {
-        // hapus file gambar jika ada
-        if (!empty($service->gambar)) {
-            $path = public_path('uploads/services/' . $service->gambar);
-            if (is_file($path)) { @unlink($path); }
-        }
+        $this->deleteImage($service->gambar);
         $service->delete();
-        return response()->json(['success' => true]);
+
+        return response()->json(['success' => true, 'message' => 'Layanan berhasil dihapus.']);
+    }
+
+    /* ----------------------------------------------------------------- */
+
+    private function rules(bool $isUpdate = false): array
+    {
+        return [
+            'nama'      => ['required', 'string', 'max:255'],
+            'harga_min' => ['required', 'numeric', 'min:0'],
+            'harga_max' => ['required', 'numeric', 'gte:harga_min'],
+            'status'    => [$isUpdate ? 'required' : 'nullable', 'in:aktif,nonaktif'],
+            'deskripsi' => ['nullable', 'string'],
+            'gambar'    => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+        ];
+    }
+
+    private function messages(): array
+    {
+        return [
+            'nama.required'      => 'Nama layanan wajib diisi.',
+            'harga_min.required' => 'Harga minimum wajib diisi.',
+            'harga_max.required' => 'Harga maksimum wajib diisi.',
+            'harga_max.gte'      => 'Harga maksimum tidak boleh lebih kecil dari harga minimum.',
+            'gambar.image'       => 'File harus berupa gambar.',
+            'gambar.mimes'       => 'Format gambar harus JPG, PNG, atau WEBP.',
+            'gambar.max'         => 'Ukuran gambar maksimal 2MB.',
+            'gambar.uploaded'    => 'Gambar gagal diunggah. Ukuran file melebihi batas server (cek upload_max_filesize di php.ini).',
+        ];
+    }
+
+    private function saveImage(Request $request): string
+    {
+        $dir = public_path('uploads/services');
+        if (!File::isDirectory($dir)) {
+            File::makeDirectory($dir, 0755, true);
+        }
+
+        $file = $request->file('gambar');
+        $name = time() . '_' . preg_replace('/[^A-Za-z0-9._-]/', '_', $file->getClientOriginalName());
+        $file->move($dir, $name);
+
+        return $name;
+    }
+
+    private function deleteImage(?string $filename): void
+    {
+        if ($filename) {
+            File::delete(public_path('uploads/services/' . $filename));
+        }
     }
 }

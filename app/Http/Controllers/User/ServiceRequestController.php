@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use App\Services\HaversineService;
 use App\Services\OpenStreetMapGeocodingService;
 use App\Services\PricingService;
@@ -51,11 +52,11 @@ class ServiceRequestController extends Controller
         }
 
         $selectedLayanan = $request->query('layanan');
-            $selected = $services->firstWhere('nama', $selectedLayanan);
+        $selected = $services->firstWhere('nama', $selectedLayanan);
         $user = Auth::user();
-            $pricingRules = $pricingService->getRules();
+        $pricingRules = $pricingService->getRules();
 
-            return view('user.request', compact('services', 'selected', 'user', 'workers', 'pricingRules'));
+        return view('user.request', compact('services', 'selected', 'user', 'workers', 'pricingRules'));
     }
 
     public function reverseAddress(Request $request, OpenStreetMapGeocodingService $geocoder)
@@ -149,7 +150,7 @@ class ServiceRequestController extends Controller
     }
 
     /**
-     * Endpoint AJAX untuk menghitung estimasi harga & durasi
+     * Endpoint AJAX untuk menghitung jarak rute (dipakai peta di form)
      */
     public function hitung(Request $request)
     {
@@ -242,7 +243,7 @@ class ServiceRequestController extends Controller
                 ->whereIn('status', ['dikonfirmasi', 'dikerjakan'])
                 ->exists();
 
-            if (!$worker || $worker->status !== 'aktif' || ($worker->status_ketersediaan ?? 'siap') !== 'siap' || $hasActiveJob || !$hasServiceSkill) {
+            if ($worker->status !== 'aktif' || ($worker->status_ketersediaan ?? 'siap') !== 'siap' || $hasActiveJob || !$hasServiceSkill) {
                 return back()->withInput()->with('error', 'Tukang pilihan tidak tersedia atau tidak sesuai dengan layanan. Silakan pilih tukang lain.');
             }
             $estimateWorker = $worker;
@@ -298,6 +299,23 @@ class ServiceRequestController extends Controller
 
         $userLat = (float) $validated['latitude'];
         $userLon = (float) $validated['longitude'];
+
+        // 2. Jarak rute jalan dihitung ulang di server (sama seperti hitung()),
+        //    bukan dari angka kiriman browser, agar tidak bisa dimanipulasi.
+        $route = $this->haversineService->getDrivingRoute(
+            HaversineService::OFFICE_LATITUDE,
+            HaversineService::OFFICE_LONGITUDE,
+            $userLat,
+            $userLon
+        );
+        if ($route === null) {
+            Log::warning('store(): rute jalan gagal dihitung, memakai garis lurus sebagai cadangan', [
+                'latitude' => $userLat,
+                'longitude' => $userLon,
+            ]);
+        }
+
+        // 3. Hitung harga, transportasi, dan durasi
         $hargaDasar = $estimateWorker && (float) ($estimateWorker->tarif ?? 0) > 0
             ? (float) $estimateWorker->tarif
             : (float) $service->harga_min;
@@ -315,6 +333,8 @@ class ServiceRequestController extends Controller
             urgensi: $validated['urgensi'],
             userLat: $userLat,
             userLon: $userLon,
+            routeDistanceKm: isset($route['distance_km']) ? (float) $route['distance_km'] : null,
+            routeDurationMinutes: isset($route['duration_minutes']) ? (int) $route['duration_minutes'] : null,
             tingkatKerusakan: $validated['tingkat_kerusakan']
         );
         $biayaUrgensi = round($hargaAwal * ($pricing['faktor_urgensi'] - 1));
@@ -330,7 +350,7 @@ class ServiceRequestController extends Controller
 
         $userId = Auth::id() ?? 1;
 
-        // 4. Simpan Koordinat Rumah User ke Tabel `request`
+        // 4. Simpan ke Tabel `request` (jarak & durasi memakai hasil rute jalan)
         $idRequest = DB::table('request')->insertGetId([
             'id_user' => $userId,
             'id_worker_pilihan' => $validated['id_worker_pilihan'] ?? null,

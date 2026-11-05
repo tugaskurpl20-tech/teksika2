@@ -15,6 +15,20 @@
     <link rel="stylesheet" href="{{ asset('css/dashboard_admin.css') }}">
     <link rel="stylesheet" href="{{ asset('css/profile-modal.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <style>
+        .form-error-box {
+            display: none;
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 14px;
+            font-size: 0.88rem;
+        }
+        .form-error-box ul { margin: 0; padding-left: 18px; }
+        .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+    </style>
 </head>
 <body>
     <!-- Sidebar -->
@@ -65,7 +79,7 @@
                 <i class="fa-solid fa-bars"></i>
             </div>
             <input type="text" id="searchServices" placeholder="Cari layanan...">
-            
+
             <div class="user-info" style="position:relative;">
                 @php
                     $pendingBookingCount = \App\Models\Request::where('status_admin', 'belum_diterima')->count();
@@ -75,7 +89,7 @@
                     $notifPayments = \App\Models\Pembayaran::where('status', 'pending')->orderBy('created_at', 'desc')->take(5)->get();
                     $currentAdminUser = Auth::guard('admin')->user() ?? auth()->user();
                 @endphp
-                
+
                 <!-- Notifikasi Bell -->
                 <div id="notifBell" class="notif-bell" title="Notifikasi Masuk">
                     <i class="fa-solid fa-bell"></i>
@@ -141,7 +155,7 @@
                 </div>
                 <div class="welcome-badge">
                     <i class="fa-solid fa-circle-check"></i>
-                    <span>Sistem Aktif & Terverifikasi</span>
+                    <span>Sistem Aktif &amp; Terverifikasi</span>
                 </div>
             </div>
 
@@ -225,7 +239,16 @@
                             </div>
                         </div>
                         <div class="service-actions">
-                            <button type="button" class="action-pill-edit edit-btn" data-id="{{ $service->id }}" title="Edit Layanan">
+                            <button type="button"
+                                    class="action-pill-edit edit-btn"
+                                    data-id="{{ $service->id }}"
+                                    data-nama="{{ $service->nama }}"
+                                    data-deskripsi="{{ $service->deskripsi }}"
+                                    data-harga-min="{{ (int) $service->harga_min }}"
+                                    data-harga-max="{{ (int) $service->harga_max }}"
+                                    data-status="{{ $service->status }}"
+                                    data-gambar="{{ !empty($service->gambar) ? asset('uploads/services/'.$service->gambar) : '' }}"
+                                    title="Edit Layanan">
                                 <i class="fa-solid fa-pen-to-square"></i>
                                 <span>Edit</span>
                             </button>
@@ -249,7 +272,7 @@
         </div>
     </div>
 
-    <!-- Popup Tambah Layanan (Spacious & Modern) -->
+    <!-- Popup Tambah Layanan -->
     <div class="popup-overlay" id="createPopup" style="display:none;" onclick="if(event.target===this) closeCreatePopup();">
       <div class="popup-content popup-large">
           <div class="popup-header-modern">
@@ -267,22 +290,9 @@
               </button>
           </div>
 
-          @if ($errors->any())
-              <div style="background:#fee2e2; color:#991b1b; padding:12px 16px; border-radius:10px; margin-bottom:14px; font-size:0.88rem;">
-                  <ul style="margin:0; padding-left:18px;">
-                      @foreach ($errors->all() as $error)
-                          <li>{{ $error }}</li>
-                      @endforeach
-                  </ul>
-              </div>
-          @endif
-          @if (session('success'))
-              <div style="background:#dcfce7; color:#166534; padding:12px 16px; border-radius:10px; margin-bottom:14px; font-size:0.88rem;">
-                  {{ session('success') }}
-              </div>
-          @endif
+          <div id="createErrorBox" class="form-error-box"></div>
 
-          <form id="createForm" action="{{ route('services.store') }}" method="POST" enctype="multipart/form-data">
+          <form id="createForm" action="{{ route('services.store') }}" method="POST" enctype="multipart/form-data" novalidate>
               @csrf
               <div class="form-grid-2col">
                   <!-- Kolom Kiri -->
@@ -322,7 +332,7 @@
                                   <i id="createServiceDefaultIcon" class="fa-solid fa-image"></i>
                               </div>
                               <div class="file-upload-details">
-                                  <input type="file" id="create_gambar" name="gambar" accept="image/*" onchange="previewServiceImage(this, 'createServicePreviewImg', 'createServiceDefaultIcon')">
+                                  <input type="file" id="create_gambar" name="gambar" accept="image/png,image/jpeg,image/webp" onchange="previewServiceImage(this, 'createServicePreviewImg', 'createServiceDefaultIcon')">
                                   <div style="font-size:0.76rem; color:#64748b; margin-top:5px;">
                                       Format JPG, PNG, WEBP (Maksimal 2MB).
                                   </div>
@@ -339,7 +349,7 @@
 
               <div class="popup-actions">
                   <button type="button" class="btn-cancel" onclick="closeCreatePopup()">Batal</button>
-                  <button type="submit" class="btn-primary">
+                  <button type="submit" class="btn-primary" id="createSubmitBtn">
                       <i class="fa-solid fa-plus"></i> Tambah Layanan
                   </button>
               </div>
@@ -347,7 +357,7 @@
       </div>
     </div>
 
-    <!-- Popup Edit Layanan (Spacious & Modern) -->
+    <!-- Popup Edit Layanan -->
     <div class="popup-overlay" id="popup" style="display:none;" onclick="if(event.target===this) closeEditPopup();">
       <div class="popup-content popup-large">
           <div class="popup-header-modern">
@@ -365,8 +375,10 @@
               </button>
           </div>
 
-          <form id="editForm" enctype="multipart/form-data">
-              <input type="hidden" id="editId" name="id">
+          <div id="editErrorBox" class="form-error-box"></div>
+
+          <form id="editForm" enctype="multipart/form-data" novalidate>
+              <input type="hidden" id="editId">
               <input type="hidden" name="_method" value="PUT">
 
               <div class="form-grid-2col">
@@ -407,9 +419,9 @@
                                   <i id="editServiceDefaultIcon" class="fa-solid fa-image"></i>
                               </div>
                               <div class="file-upload-details">
-                                  <input type="file" id="editGambar" name="gambar" accept="image/*" onchange="previewServiceImage(this, 'editServicePreviewImg', 'editServiceDefaultIcon')">
+                                  <input type="file" id="editGambar" name="gambar" accept="image/png,image/jpeg,image/webp" onchange="previewServiceImage(this, 'editServicePreviewImg', 'editServiceDefaultIcon')">
                                   <div style="font-size:0.76rem; color:#64748b; margin-top:5px;">
-                                      Kosongkan jika tidak ingin mengubah icon saat ini.
+                                      Kosongkan jika tidak ingin mengubah icon saat ini (Maksimal 2MB).
                                   </div>
                               </div>
                           </div>
@@ -424,7 +436,7 @@
 
               <div class="popup-actions">
                   <button type="button" class="btn-cancel" onclick="closeEditPopup()">Batal</button>
-                  <button type="submit" class="btn-primary">
+                  <button type="submit" class="btn-primary" id="editSubmitBtn">
                       <i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan
                   </button>
               </div>
@@ -432,7 +444,7 @@
       </div>
     </div>
 
-    <!-- Admin Profile Modal (Modular, No Duplicate Logout) -->
+    <!-- Admin Profile Modal -->
     @include('admin._profile_modal')
 
     <!-- Modal Logout Tunggal Admin -->
@@ -443,8 +455,9 @@
 
     <script>
     const token = document.querySelector('meta[name="csrf-token"]').getAttribute("content");
+    const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2MB, sama dengan validasi di controller
 
-    // Modal Profil Admin
+    /* ---------- Modal Profil & Logout ---------- */
     function openAdminProfileModal(){
         var el = document.getElementById('adminProfileModal');
         if(el){ el.style.display = 'flex'; }
@@ -453,8 +466,6 @@
         var el = document.getElementById('adminProfileModal');
         if(el){ el.style.display = 'none'; }
     }
-
-    // Modal Logout Tunggal Admin
     function openLogoutModal(){
         var el = document.getElementById('logoutModal');
         if(el){ el.style.display = 'flex'; }
@@ -467,7 +478,70 @@
         window.location.href = "{{ route('logout') }}";
     }
 
-    // Live Preview Service Image
+    /* ---------- Helper ---------- */
+    function showFormError(box, messages){
+        if(!box) return;
+        const list = Array.isArray(messages) ? messages : [messages];
+        box.innerHTML = "";
+        const ul = document.createElement("ul");
+        list.forEach(m => {
+            const li = document.createElement("li");
+            li.textContent = m;
+            ul.appendChild(li);
+        });
+        box.appendChild(ul);
+        box.style.display = "block";
+    }
+    function hideFormError(box){
+        if(box){ box.style.display = "none"; box.innerHTML = ""; }
+    }
+
+    // Kirim form lewat fetch, tangani 419 / 422 / error server
+    async function submitServiceForm({ url, formData, button, errorBox }){
+        hideFormError(errorBox);
+        button.disabled = true;
+        try {
+            const res = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "X-CSRF-TOKEN": token,
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Accept": "application/json"
+                },
+                body: formData
+            });
+
+            if(res.status === 419){
+                showFormError(errorBox, "Sesi habis. Halaman akan dimuat ulang, silakan coba lagi.");
+                setTimeout(() => location.reload(), 1500);
+                return;
+            }
+
+            let data = {};
+            try { data = await res.json(); } catch(e) {}
+
+            if(res.ok && data.success){
+                location.reload();
+                return;
+            }
+            if(res.status === 422 && data.errors){
+                showFormError(errorBox, Object.values(data.errors).flat());
+                return;
+            }
+            showFormError(errorBox, data.message || ("Gagal menyimpan (kode " + res.status + "). Cek storage/logs/laravel.log."));
+        } catch(err){
+            showFormError(errorBox, "Gagal terhubung ke server. Pastikan php artisan serve masih berjalan.");
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    function imageTooLarge(inputEl){
+        const f = inputEl.files && inputEl.files[0];
+        return f && f.size > MAX_IMAGE_BYTES;
+    }
+
+    /* ---------- Live preview gambar ---------- */
     function previewServiceImage(input, imgId, iconId){
         if(input.files && input.files[0]){
             const reader = new FileReader();
@@ -481,42 +555,63 @@
         }
     }
 
-    // CREATE POPUP
+    /* ---------- CREATE ---------- */
     function openCreatePopup(){
         document.getElementById("createForm").reset();
+        hideFormError(document.getElementById("createErrorBox"));
         const img = document.getElementById("createServicePreviewImg");
         const icon = document.getElementById("createServiceDefaultIcon");
         if(img){ img.src = ""; img.style.display = "none"; }
         if(icon){ icon.style.display = "block"; }
-        document.getElementById("createPopup").style.display="flex";
+        document.getElementById("createPopup").style.display = "flex";
     }
-    function closeCreatePopup(){ document.getElementById("createPopup").style.display="none"; }
+    function closeCreatePopup(){
+        document.getElementById("createPopup").style.display = "none";
+    }
 
-    // EDIT POPUP
-    function closeEditPopup(){ document.getElementById("popup").style.display="none"; }
+    document.getElementById("createForm").addEventListener("submit", e => {
+        e.preventDefault();
+        const form = e.target;
+        const errorBox = document.getElementById("createErrorBox");
 
-    document.querySelectorAll(".edit-btn").forEach(btn=>{
-        btn.addEventListener("click", ()=>{
-            const card = btn.closest(".service-card");
+        const min = parseFloat(document.getElementById("create_harga_min").value);
+        const max = parseFloat(document.getElementById("create_harga_max").value);
+        const errors = [];
+        if(!form.nama.value.trim()) errors.push("Nama layanan wajib diisi.");
+        if(isNaN(min)) errors.push("Harga minimum wajib diisi.");
+        if(isNaN(max)) errors.push("Harga maksimum wajib diisi.");
+        if(!isNaN(min) && !isNaN(max) && max < min) errors.push("Harga maksimum tidak boleh lebih kecil dari harga minimum.");
+        if(imageTooLarge(document.getElementById("create_gambar"))) errors.push("Ukuran gambar maksimal 2MB. Pilih gambar yang lebih kecil.");
+        if(errors.length){ showFormError(errorBox, errors); return; }
+
+        submitServiceForm({
+            url: form.action,
+            formData: new FormData(form),
+            button: document.getElementById("createSubmitBtn"),
+            errorBox: errorBox
+        });
+    });
+
+    /* ---------- EDIT ---------- */
+    function closeEditPopup(){
+        document.getElementById("popup").style.display = "none";
+    }
+
+    document.querySelectorAll(".edit-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            hideFormError(document.getElementById("editErrorBox"));
             document.getElementById("editId").value = btn.dataset.id;
-            document.getElementById("namaLayanan").value = card.querySelector("h4").innerText.trim();
-            document.getElementById("deskripsi").value = card.querySelector("p").innerText.trim();
-            
-            const hargaText = card.querySelector(".service-price-tag").innerText.trim();
-            const hargaArr = hargaText.replace(/[^\d\-]/g, '').split('-');
-            document.getElementById("editHargaMin").value = hargaArr[0] ? hargaArr[0].trim() : '';
-            document.getElementById("editHargaMax").value = hargaArr[1] ? hargaArr[1].trim() : '';
-            
-            const statusText = card.querySelector(".service-status").innerText.trim().toLowerCase();
-            document.getElementById("status").value = statusText.includes("aktif") && !statusText.includes("nonaktif") ? "aktif" : "nonaktif";
+            document.getElementById("namaLayanan").value = btn.dataset.nama || "";
+            document.getElementById("deskripsi").value = btn.dataset.deskripsi || "";
+            document.getElementById("editHargaMin").value = btn.dataset.hargaMin || "0";
+            document.getElementById("editHargaMax").value = btn.dataset.hargaMax || "0";
+            document.getElementById("status").value = btn.dataset.status === "aktif" ? "aktif" : "nonaktif";
             document.getElementById("editGambar").value = "";
 
-            // Preview icon layanan saat ini
-            const cardImg = card.querySelector(".service-icon img");
             const editImg = document.getElementById("editServicePreviewImg");
             const editIcon = document.getElementById("editServiceDefaultIcon");
-            if(cardImg && cardImg.src){
-                editImg.src = cardImg.src;
+            if(btn.dataset.gambar){
+                editImg.src = btn.dataset.gambar;
                 editImg.style.display = "block";
                 editIcon.style.display = "none";
             } else {
@@ -525,58 +620,80 @@
                 editIcon.style.display = "block";
             }
 
-            document.getElementById("popup").style.display="flex";
+            document.getElementById("popup").style.display = "flex";
         });
     });
 
-    document.getElementById("editForm").addEventListener("submit", e=>{
+    document.getElementById("editForm").addEventListener("submit", e => {
         e.preventDefault();
+        const errorBox = document.getElementById("editErrorBox");
         const id = document.getElementById("editId").value;
-        const formData = new FormData(document.getElementById("editForm"));
-        const gambar = document.getElementById("editGambar").files[0];
-        if(gambar) formData.set('gambar', gambar);
-        
-        fetch(`/services/${id}`, {
-            method: "POST",
-            headers: {
-                "X-CSRF-TOKEN": token,
-                "Accept": "application/json"
-            },
-            body: formData
-        }).then(r=>r.json()).then(d=>{
-            if(d.success){ location.reload(); }
+
+        const min = parseFloat(document.getElementById("editHargaMin").value);
+        const max = parseFloat(document.getElementById("editHargaMax").value);
+        const errors = [];
+        if(!document.getElementById("namaLayanan").value.trim()) errors.push("Nama layanan wajib diisi.");
+        if(isNaN(min) || isNaN(max)) errors.push("Harga minimum dan maksimum wajib diisi.");
+        if(!isNaN(min) && !isNaN(max) && max < min) errors.push("Harga maksimum tidak boleh lebih kecil dari harga minimum.");
+        if(imageTooLarge(document.getElementById("editGambar"))) errors.push("Ukuran gambar maksimal 2MB. Pilih gambar yang lebih kecil.");
+        if(errors.length){ showFormError(errorBox, errors); return; }
+
+        // POST + _method=PUT (method spoofing) agar file bisa ikut terkirim
+        submitServiceForm({
+            url: "{{ url('/services') }}/" + id,
+            formData: new FormData(e.target),
+            button: document.getElementById("editSubmitBtn"),
+            errorBox: errorBox
         });
     });
 
-    // DELETE
-    document.querySelectorAll(".delete-btn").forEach(btn=>{
-        btn.addEventListener("click", ()=>{
-            if(confirm("Yakin ingin menghapus layanan ini dari sistem?")){
-                fetch(`/services/${btn.dataset.id}`, {
-                    method:"DELETE",
-                    headers:{ "X-CSRF-TOKEN":token, "Accept":"application/json" }
-                }).then(r=>r.json()).then(d=>{
-                    if(d.success){ location.reload(); }
+    /* ---------- DELETE ---------- */
+    document.querySelectorAll(".delete-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            if(!confirm("Yakin ingin menghapus layanan ini dari sistem?")) return;
+            try {
+                const res = await fetch("{{ url('/services') }}/" + btn.dataset.id, {
+                    method: "DELETE",
+                    headers: {
+                        "X-CSRF-TOKEN": token,
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Accept": "application/json"
+                    }
                 });
+                if(res.status === 419){ alert("Sesi habis. Halaman akan dimuat ulang."); location.reload(); return; }
+                let data = {};
+                try { data = await res.json(); } catch(e) {}
+                if(res.ok && data.success){ location.reload(); }
+                else { alert(data.message || "Gagal menghapus layanan (kode " + res.status + ")."); }
+            } catch(err){
+                alert("Gagal terhubung ke server.");
             }
         });
     });
 
-    // Client-side Services Search
+    /* ---------- Tutup popup dengan tombol Esc ---------- */
+    document.addEventListener("keydown", e => {
+        if(e.key === "Escape"){
+            closeCreatePopup();
+            closeEditPopup();
+        }
+    });
+
+    /* ---------- Pencarian layanan (client-side) ---------- */
     (function(){
         const input = document.getElementById('searchServices');
         const cards = Array.from(document.querySelectorAll('.service-card'));
-        if(!input || cards.length===0) return;
+        if(!input || cards.length === 0) return;
         input.addEventListener('input', function(){
             const q = this.value.trim().toLowerCase();
-            cards.forEach(card=>{
+            cards.forEach(card => {
                 const name = card.querySelector('h4')?.innerText.trim().toLowerCase() || '';
                 card.style.display = name.includes(q) ? '' : 'none';
             });
         });
     })();
 
-    // Notification dropdown
+    /* ---------- Dropdown notifikasi ---------- */
     (function(){
         const bell = document.getElementById('notifBell');
         const dd = document.getElementById('notifDropdown');
@@ -597,10 +714,10 @@
             const show = dd.style.display !== 'block';
             if(show){
                 dd.style.display = 'block';
-                setTimeout(()=>{
+                setTimeout(() => {
                     document.addEventListener('click', onOutsideClick);
                     document.addEventListener('keydown', onEsc);
-                },0);
+                }, 0);
             } else {
                 closeDD();
             }
